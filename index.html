@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPACE INVAGERS</title>
+<style>
+  :root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: #a3ffad; background: #0a100d; }
+  * { box-sizing: border-box; }
+  body { min-height: 100svh; margin: 0; padding: 26px 12px; display: grid; place-items: center; }
+  main { width: min(100%, 560px); text-align: center; }
+  .eyebrow { color: #6e9c79; font-size: 10px; letter-spacing: 2px; }
+  h1 { font-size: clamp(23px, 6vw, 36px); letter-spacing: -1px; margin: 12px 0 7px; }
+  .subtitle, .help { color: #88aa91; font-size: 12px; line-height: 1.7; }
+  .hud { display: flex; justify-content: space-between; margin: 24px auto 6px; font-size: 12px; max-width: 404px; }
+  pre { margin: 0; font-size: clamp(8px, 2.95vw, 14px); line-height: 1.25; white-space: pre; user-select: none; text-shadow: 0 0 8px #69ff8633; }
+  #status { min-height: 2.8em; margin: 12px 0; color: #f0d486; font-size: 12px; line-height: 1.4; }
+  .controls { display: flex; justify-content: center; gap: 10px; }
+  button { background: #13251a; color: inherit; border: 1px solid #3e6849; border-radius: 5px; padding: 12px 18px; font: inherit; cursor: pointer; touch-action: none; user-select: none; }
+  button:hover, button:active { background: #23452e; }
+  button:focus-visible { outline: 2px solid #f0d486; outline-offset: 3px; }
+  #restart { margin-top: 8px; padding: 6px 12px; font-size: 11px; color: #88aa91; background: transparent; border-color: transparent; }
+  .help { margin: 13px 0 0; font-size: 11px; }
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">A VERY SMALL PLANETARY EMERGENCY</div>
+  <h1>SPACE INVAGERS</h1>
+  <div class="subtitle">They came. They saw. They want your snacks.</div>
+  <div class="hud"><span id="score">SCORE 0000</span><span id="hull">HULL [|||]</span></div>
+  <pre id="screen" role="img" aria-label="ASCII Space Invagers game. Move with arrow keys or A and D. Hold Space to fire."></pre>
+  <p id="status" role="status">The fate of a moderately okay planet is in your hands.</p>
+  <div class="controls">
+    <button data-key="left" aria-label="Move left">&lt; LEFT</button>
+    <button data-key="fire">PEW!</button>
+    <button data-key="right" aria-label="Move right">RIGHT &gt;</button>
+  </div>
+  <p class="help">ARROWS / A D: move &nbsp; SPACE: start / shoot<br>Hold to move or fire. R: restart &nbsp; P: pause</p>
+  <button id="restart">[ restart the tiny apocalypse ]</button>
+</main>
+<script>
+(() => {
+  'use strict';
+  const W = 46, H = 24, SHIP_Y = H - 2;
+  const $ = id => document.getElementById(id);
+  const screen = $('screen'), keyboard = new Set(), touches = new Map();
+  const held = key => keyboard.has(key) || [...touches.values()].includes(key);
+  let mode, ship, aliens, shots, bombs, sparks, score, lives, dir, march, reload, attack, invincible, clock;
+  let last = 0;
+
+  function reset(ready = false) {
+    ship = W / 2; score = 0; lives = 3; dir = 1;
+    march = reload = clock = invincible = 0; attack = 1;
+    aliens = Array.from({length: 21}, (_, i) => ({x: 5 + (i % 7) * 5, y: 2 + Math.floor(i / 7) * 2}));
+    shots = []; bombs = []; sparks = [];
+    keyboard.clear(); touches.clear();
+    mode = ready ? 'ready' : 'play';
+    $('status').textContent = 'The fate of a moderately okay planet is in your hands.';
+    draw();
+  }
+  function finish(won) {
+    mode = won ? 'win' : 'lose';
+    $('status').textContent = won ? 'You saved Earth! Management has approved one (1) biscuit.' : 'A brave effort. Unfortunately, the invagers have eaten your fridge.';
+  }
+  function pause() {
+    if (mode === 'play') mode = 'pause';
+    else if (mode === 'pause') mode = 'play';
+    draw();
+  }
+  function step(dt) {
+    if (mode !== 'play') return;
+    clock += dt;
+    reload -= dt; attack -= dt; march += dt; invincible = Math.max(0, invincible - dt);
+    ship = Math.max(1, Math.min(W - 2, ship + ((held('right') ? 1 : 0) - (held('left') ? 1 : 0)) * 22 * dt));
+    if (held('fire') && reload <= 0) { shots.push({x: Math.round(ship), y: SHIP_Y - 1}); reload = 0.19; }
+
+    if (march >= 0.13 + aliens.length * 0.021) {
+      march = 0;
+      if (aliens.some(a => a.x + dir < 1 || a.x + dir > W - 2)) {
+        dir *= -1; aliens.forEach(a => a.y++);
+      } else aliens.forEach(a => a.x += dir);
+      if (aliens.some(a => a.y >= SHIP_Y - 1)) { finish(false); return; }
+    }
+    if (attack <= 0 && aliens.length) {
+      const front = aliens.filter(a => !aliens.some(b => b.x === a.x && b.y > a.y));
+      const a = front[Math.floor(Math.random() * front.length)];
+      bombs.push({x: a.x, y: a.y + 1});
+      attack = 0.55 + Math.random() * 0.65;
+    }
+    for (const s of shots) {
+      const oldY = s.y; s.y -= 24 * dt;
+      const i = aliens.findIndex(a => Math.abs(a.x - s.x) <= 1 && a.y >= s.y - 0.5 && a.y <= oldY + 0.5);
+      if (i !== -1) {
+        const a = aliens.splice(i, 1)[0];
+        sparks.push({x: a.x, y: a.y, life: 0.2}); s.y = -99; score += 10;
+      }
+    }
+    shots = shots.filter(s => s.y >= 0);
+    if (!aliens.length) { finish(true); return; }
+    for (const b of bombs) {
+      const oldY = b.y; b.y += 10 * dt;
+      if (!invincible && Math.abs(b.x - Math.round(ship)) <= 1 && oldY <= SHIP_Y + 0.5 && b.y >= SHIP_Y - 0.5) {
+        b.y = H; lives--; invincible = 1.4;
+        $('status').textContent = lives === 2 ? 'Rude. That was your good spaceship.' : 'One hull left. Please stop catching the bullets.';
+        if (!lives) { finish(false); return; }
+      }
+    }
+    bombs = bombs.filter(b => b.y < H);
+    sparks.forEach(s => s.life -= dt); sparks = sparks.filter(s => s.life > 0);
+  }
+  function draw() {
+    const grid = Array.from({length: H}, () => Array(W).fill(' '));
+    function put(x, y, text) {
+      x = Math.round(x); y = Math.round(y);
+      for (let i = 0; i < text.length; i++) if (y >= 0 && y < H && x + i >= 0 && x + i < W) grid[y][x + i] = text[i];
+    }
+    // The stars are decorative and, unlike the invagers, mind their business.
+    for (let i = 0; i < 25; i++) put((i * 17 + 3) % W, (i * 7 + 1) % H, '.');
+    aliens.forEach(a => put(a.x - 1, a.y, Math.floor(clock * 3) % 2 ? '<o>' : '{v}'));
+    shots.forEach(s => put(s.x, s.y, '|'));
+    bombs.forEach(b => put(b.x, b.y, 'v'));
+    sparks.forEach(s => put(s.x - 1, s.y, '*+*'));
+    if (!invincible || Math.floor(clock * 12) % 2 === 0) put(Math.round(ship) - 1, SHIP_Y, '/A\\');
+    if (mode !== 'play') {
+      const text = mode === 'ready' ? ['THEY ARE EXTREMELY INVAGY.', '', 'SPACE / PEW! TO START']
+        : mode === 'pause' ? ['APOCALYPSE ON HOLD', '', 'P / PEW! TO RESUME']
+        : mode === 'win' ? ['S N A C K S   S E C U R E D', '', 'EARTH REMAINS MOSTLY OKAY.', '', 'SPACE / PEW! TO PLAY AGAIN']
+        : ['Y O U   G O T   I N V A G E D', '', 'YOUR FRIDGE IS THEIR FRIDGE NOW.', '', 'SPACE / PEW! TO TRY AGAIN'];
+      const top = Math.floor((H - text.length) / 2);
+      for (let y = top - 1; y <= top + text.length; y++) grid[y].fill(' ');
+      text.forEach((line, i) => put(Math.floor((W - line.length) / 2), top + i, line));
+    }
+    const border = '+' + '-'.repeat(W) + '+';
+    screen.textContent = [border, ...grid.map(row => '|' + row.join('') + '|'), border].join('\n');
+    $('score').textContent = 'SCORE ' + String(score).padStart(4, '0');
+    $('hull').textContent = 'HULL [' + '|'.repeat(lives) + '.'.repeat(3 - lives) + ']';
+  }
+  function fireAction() {
+    if (mode === 'pause') mode = 'play';
+    else if (mode !== 'play') reset();
+  }
+  function keyFor(e) {
+    return ({ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', Space: 'fire'})[e.code];
+  }
+  addEventListener('keydown', e => {
+    const key = keyFor(e);
+    // Leave Space/Enter available for native keyboard activation of buttons.
+    if (e.target instanceof HTMLButtonElement && e.code === 'Space') return;
+    if (key || e.code === 'KeyR' || e.code === 'KeyP') e.preventDefault();
+    if (e.repeat) return;
+    if (e.code === 'KeyR') reset();
+    if (e.code === 'KeyP') pause();
+    if (key) { if (key === 'fire') fireAction(); keyboard.add(key); }
+  });
+  addEventListener('keyup', e => { const key = keyFor(e); if (key) keyboard.delete(key); });
+  document.querySelectorAll('[data-key]').forEach(button => {
+    button.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      if (button.dataset.key === 'fire') fireAction();
+      touches.set(e.pointerId, button.dataset.key); button.setPointerCapture(e.pointerId);
+    });
+    for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(event, e => touches.delete(e.pointerId));
+    button.addEventListener('click', e => {
+      if (e.detail !== 0) return;
+      if (button.dataset.key === 'fire') { fireAction(); shots.push({x: Math.round(ship), y: SHIP_Y - 1}); }
+      else ship = Math.max(1, Math.min(W - 2, ship + (button.dataset.key === 'left' ? -2 : 2)));
+      draw();
+    });
+  });
+  $('restart').addEventListener('click', () => { reset(); $('restart').blur(); });
+  addEventListener('blur', () => { keyboard.clear(); touches.clear(); if (mode === 'play') { mode = 'pause'; draw(); } });
+  reset(true);
+  function frame(t) { const dt = Math.min((t - last) / 1000, 0.04); last = t; step(dt); draw(); requestAnimationFrame(frame); }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
